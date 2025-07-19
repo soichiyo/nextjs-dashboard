@@ -110,8 +110,12 @@ export async function GET() {
         revenue: revenueCount,
       },
     });
-  } catch (error: any) {
-    console.error("Seeding error:", error);
-    return Response.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Seeding error:", error);
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+    console.error("Unexpected error:", error);
+    return Response.json({ error: "Unexpected error" }, { status: 500 });
   }
 }
