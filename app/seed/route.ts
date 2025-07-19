@@ -1,5 +1,4 @@
-{
-  /* import bcrypt from "bcrypt";
+import bcrypt from "bcrypt";
 import postgres from "postgres";
 import { invoices, customers, revenue, users } from "../lib/placeholder-data";
 
@@ -115,6 +114,4 @@ export async function GET() {
     console.error("Seeding error:", error);
     return Response.json({ error: error.message }, { status: 500 });
   }
-}
-*/
 }
