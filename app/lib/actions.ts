@@ -8,69 +8,90 @@ import { redirect } from "next/navigation";
 const sql = postgres(process.env.POSTGRES_PRISMA_URL!, { ssl: "require" });
 
 const FormSchema = z.object({
-  id: z.string({
-    required_error: "IDが必要です",
-    invalid_type_error: "IDは文字列である必要があります",
-  }),
+  id: z.string(),
   customerId: z.string({
-    required_error: "顧客IDが必要です",
-    invalid_type_error: "顧客IDは文字列である必要があります",
+    invalid_type_error: "Please select a customer.",
   }),
-  amount: z.coerce.number({
-    required_error: "金額が必要です",
-    invalid_type_error: "金額は数値である必要があります",
-  }),
+  amount: z.coerce
+    .number()
+    .gt(0, { message: "Please enter an amount greater than $0." }),
   status: z.enum(["pending", "paid"], {
-    required_error: "ステータスが必要です",
-    invalid_type_error: "ステータスは'pending'または'paid'である必要があります",
+    invalid_type_error: "Please select an invoice status.",
   }),
-  date: z.string({
-    required_error: "日付が必要です",
-    invalid_type_error: "日付は文字列である必要があります",
-  }),
+  date: z.string(),
 });
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 const UpdateInvoice = FormSchema.omit({ id: true, date: true });
 
-export async function createInvoice(formData: FormData) {
-  const { customerId, amount, status } = CreateInvoice.parse({
+export type State = {
+  errors?: {
+    customerId?: string[];
+    amount?: string[];
+    status?: string[];
+  };
+  message?: string | null;
+};
+
+export async function createInvoice(prevState: State, formData: FormData) {
+  // Validate form using Zod
+  const validatedFields = CreateInvoice.safeParse({
     customerId: formData.get("customerId"),
     amount: formData.get("amount"),
     status: formData.get("status"),
   });
+
+  // If form validation fails, return errors early. Otherwise, continue.
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Missing Fields. Failed to Create Invoice.",
+    };
+  }
+
+  // Prepare data for insertion into the database
+  const { customerId, amount, status } = validatedFields.data;
   const amountInCents = amount * 100;
   const date = new Date().toISOString().split("T")[0];
 
+  // Insert data into the database
   try {
     await sql`
-    INSERT INTO invoices (customer_id, amount, status, date)
-    VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
-  `;
+      INSERT INTO invoices (customer_id, amount, status, date)
+      VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
+    `;
   } catch (error) {
-    console.error(error);
+    // If a database error occurs, return a more specific error.
+    return {
+      message: "Database Error: Failed to Create Invoice.",
+    };
   }
 
+  // Revalidate the cache for the invoices page and redirect the user.
   revalidatePath("/dashboard/invoices");
-  //目的: 古いキャッシュを削除して、最新データを表示させる
-  //タイミング: データベース更新の直後
-  //効果: 次回ページアクセス時に最新データを取得
-  //revalidatePathがないと：
-  //データは保存されるが、古いキャッシュが表示される
-  //ユーザーは新しいデータを見ることができない
-
   redirect("/dashboard/invoices");
-  //目的: ユーザーを適切なページに移動させる
-  //タイミング: revalidatePathの直後
-  //効果: 関数が終了し、指定されたページに移動
 }
 
-export async function updateInvoice(id: string, formData: FormData) {
-  const { customerId, amount, status } = UpdateInvoice.parse({
+export async function updateInvoice(
+  id: string,
+  prevState: State,
+  formData: FormData
+) {
+  const { message, errors } = prevState;
+  const validatedFields = UpdateInvoice.safeParse({
     customerId: formData.get("customerId"),
     amount: formData.get("amount"),
     status: formData.get("status"),
   });
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Missing Fields. Failed to Update Invoice.",
+    };
+  }
+
+  const { customerId, amount, status } = validatedFields.data;
 
   const amountInCents = amount * 100;
 
